@@ -85,20 +85,33 @@ abstract class DevToolsConnection
     {
         $data = [];
         while (true) {
-            try {
-                $response = $this->client->receive();
-            } catch (ConnectionException $exception) {
-                $message = $exception->getMessage();
-                $state = json_decode(substr($message, strpos($message, '{')), true);
-                throw new StreamReadException($state['eof'], $state['timed_out'], $state['blocked']);
-            }
+            $minTries = 3;
+            $currTry = 0;
+            $response = null;
+            do {
+                try {
+                    $response = $this->client->receive();
+                    $success = true;
+                } catch (ConnectionException $exception) {
+                    $message = $exception->getMessage();
+                    $state = json_decode(substr($message, strpos($message, '{')), true);
+                    if($currTry>=$minTries)
+                        throw new StreamReadException($state['eof'], $state['timed_out'], $state['blocked']);
+                        else{
+                            \Log::info('DevToolsConnection: slow connection, retrying '.$currTry.'/'.$minTries);
+                        }
+                        $currTry++;
+                        sleep(3);
+                }
+            } while($currTry<$minTries && !$success);
+            
             if (is_null($response)) {
                 return null;
             }
             $data = json_decode($response, true);
 
             if (array_key_exists('error', $data)) {
-                $message = $data['error']['data'] ? $data['error']['message'] . '. ' . $data['error']['data'] : $data['error']['message'];
+                $message = isset($data['error']['data']) && $data['error']['data'] ? $data['error']['message'] . '. ' . $data['error']['data'] : $data['error']['message'];
                 throw new DriverException($message , $data['error']['code']);
             }
 
